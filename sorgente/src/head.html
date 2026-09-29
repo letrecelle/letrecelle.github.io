@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+__TITLE_AND_FONTS__
+<meta name="theme-color" content="#0b6e78">
+<meta name="robots" content="noindex, nofollow, noarchive">
+<meta name="description" content="Conteggi di cella, banco e surgelati e ordine del giorno della pescheria">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Le Tre Celle">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<style>
+  body{margin:0}
+  [hidden]{display:none!important}
+  html.ltc-locked, html.ltc-locked body{overflow:hidden}
+  .ltc-gate{position:fixed;inset:0;z-index:1000;display:flex;align-items:center;justify-content:center;padding:24px 16px;
+    background:var(--paper,#f3f8f8);color:var(--ink,#132225);font-family:'IBM Plex Sans',system-ui,-apple-system,sans-serif;}
+  .ltc-card{width:100%;max-width:360px;text-align:center;}
+  .ltc-logo{width:76px;height:76px;border-radius:18px;box-shadow:0 6px 18px rgba(11,110,120,.25);}
+  .ltc-title{font-family:'Fraunces',Georgia,serif;font-size:28px;font-weight:600;margin:14px 0 6px;}
+  .ltc-msg{font-size:14.5px;line-height:1.45;color:var(--ink-soft,#5c7378);margin:0 0 18px;min-height:1.4em;}
+  .ltc-form{display:none;text-align:left;}
+  .ltc-gate[data-state="login"] .ltc-form{display:block;}
+  .ltc-gate[data-state="login"] .ltc-msg{display:none;}
+  .ltc-form label{display:block;font-size:13px;font-weight:600;color:var(--ink-soft,#5c7378);margin:0 0 12px;}
+  .ltc-form input{display:block;width:100%;box-sizing:border-box;margin-top:6px;font-size:17px;padding:13px 12px;border-radius:12px;
+    border:1px solid var(--line,#dbe6e6);background:var(--surface,#fff);color:var(--ink,#132225);font-family:inherit;}
+  .ltc-form input:focus{outline:2px solid var(--accent,#0b6e78);outline-offset:1px;}
+  .ltc-form button{width:100%;margin-top:6px;padding:14px;border:none;border-radius:12px;background:var(--accent,#0b6e78);color:#fff;
+    font-size:16px;font-weight:600;font-family:inherit;cursor:pointer;}
+  .ltc-form button:disabled{opacity:.6;}
+  .ltc-err{color:var(--critical,#bb4636);font-size:14px;font-weight:500;min-height:1.3em;margin:12px 0 4px;text-align:center;}
+  .ltc-hint{font-size:12.5px;color:var(--ink-faint,#8ea1a5);line-height:1.45;text-align:center;margin:8px 0 0;}
+  .ltc-retry{display:none;margin:0 auto;padding:12px 22px;border-radius:12px;border:1px solid var(--line,#dbe6e6);background:transparent;
+    color:var(--ink,#132225);font-size:15px;font-weight:600;font-family:inherit;cursor:pointer;}
+  .ltc-gate[data-state="error"] .ltc-retry{display:block;}
+  .ltc-spin{width:26px;height:26px;margin:0 auto 12px;border-radius:50%;border:3px solid var(--line,#dbe6e6);border-top-color:var(--accent,#0b6e78);
+    animation:ltcspin 0.9s linear infinite;display:none;}
+  .ltc-gate[data-state="loading"] .ltc-spin{display:block;}
+  @keyframes ltcspin{to{transform:rotate(360deg)}}
+  .ltc-banner{position:fixed;left:12px;right:12px;top:calc(env(safe-area-inset-top) + 10px);z-index:900;background:var(--critical,#bb4636);color:#fff;
+    padding:12px 14px;border-radius:12px;font:500 13.5px/1.4 'IBM Plex Sans',system-ui,sans-serif;box-shadow:0 8px 20px rgba(0,0,0,.18);}
+  .ltc-welcome{position:fixed;inset:0;z-index:950;background:rgba(10,20,22,.45);display:flex;align-items:flex-end;justify-content:center;padding:16px;}
+  .ltc-welcome-card{width:100%;max-width:440px;background:var(--surface,#fff);color:var(--ink,#132225);border-radius:18px;padding:20px 18px 16px;
+    font-family:'IBM Plex Sans',system-ui,sans-serif;box-shadow:0 10px 30px rgba(0,0,0,.2);}
+  .ltc-welcome-card h2{font-family:'Fraunces',Georgia,serif;font-size:21px;margin:0 0 8px;}
+  .ltc-welcome-card p{font-size:14px;line-height:1.5;margin:0 0 10px;color:var(--ink-soft,#5c7378);}
+  .ltc-welcome-card ol{font-size:14px;line-height:1.5;margin:0 0 14px;padding-left:20px;}
+  .ltc-welcome-card button{width:100%;padding:13px;border-radius:12px;font-size:15px;font-weight:600;font-family:inherit;cursor:pointer;margin-top:8px;}
+  .ltc-welcome-card .ltc-primary{background:var(--accent,#0b6e78);color:#fff;border:none;}
+  .ltc-welcome-card .ltc-secondary{background:transparent;color:var(--ink,#132225);border:1px solid var(--line,#dbe6e6);}
+  .ltc-account{margin-top:36px;padding-top:18px;border-top:1px solid var(--line,#dbe6e6);}
+</style>
+<script>
+  // The app asks for its building blocks with claude.use(name); here they come from the shop's own Firebase.
+  window.LTC_STANDALONE = true;
+  (function(){
+    var ready = {}, waiting = {};
+    window.__ltcProvide = function(name, value){
+      ready[name] = {value: value};
+      (waiting[name] || []).forEach(function(resolve){ resolve(value); });
+      waiting[name] = [];
+    };
+    window.claude = {
+      use: function(name){
+        if(ready[name]) return Promise.resolve(ready[name].value);
+        if(name !== "db" && name !== "downloads") return Promise.resolve(null); // no Claude here: photos are read on the phone
+        return new Promise(function(resolve){ (waiting[name] = waiting[name] || []).push(resolve); });
+      }
+    };
+    // If nothing has started after a while (very old phone, no internet), say so instead of spinning forever.
+    setTimeout(function(){
+      var g = document.getElementById("ltcGate");
+      if(g && !g.hidden && g.dataset.state === "loading"){
+        g.dataset.state = "error";
+        document.getElementById("ltcGateMsg").textContent = "L'app non si apre. Controlla la connessione e riprova.";
+      }
+    }, 25000);
+  })();
+</script>
+</head>
+<body>
+<div id="ltcGate" class="ltc-gate" data-state="loading">
+  <div class="ltc-card">
+    <img class="ltc-logo" src="icons/icon-192.png" alt="" width="76" height="76">
+    <div class="ltc-title">Le Tre Celle</div>
+    <div class="ltc-spin" aria-hidden="true"></div>
+    <p class="ltc-msg" id="ltcGateMsg">Apro Le Tre Celle…</p>
+    <form id="ltcLogin" class="ltc-form" autocomplete="on" novalidate>
+      <label>Email del negozio<input id="ltcEmail" name="email" type="email" autocomplete="username" inputmode="email" autocapitalize="off" autocorrect="off" spellcheck="false"></label>
+      <label>Password<input id="ltcPass" name="password" type="password" autocomplete="current-password"></label>
+      <button id="ltcGo" type="submit">Entra</button>
+      <p class="ltc-err" id="ltcErr" role="alert"></p>
+      <p class="ltc-hint">Email e password sono le stesse per tutti i telefoni del negozio. Si entra una volta sola, poi il telefono resta collegato.</p>
+    </form>
+    <button class="ltc-retry" type="button" onclick="location.reload()">Riprova</button>
+  </div>
+</div>
+<div id="ltcBanner" class="ltc-banner" role="alert" hidden></div>
+<div id="ltcWelcome" class="ltc-welcome" hidden>
+  <div class="ltc-welcome-card">
+    <h2>Benvenuto nella nuova app</h2>
+    <p>L'archivio è ancora vuoto. Per portare qui prodotti, conteggi, DDT e venduto:</p>
+    <ol>
+      <li>Nell'app dentro Claude: <b>Impostazioni → Copia di sicurezza → Scarica una copia di tutto</b>.</li>
+      <li>Qui: <b>Impostazioni → Ripristina da una copia</b> e scegli quel file.</li>
+    </ol>
+    <button class="ltc-primary" id="ltcWelcomeOpen" type="button">Apri le Impostazioni</button>
+    <button class="ltc-secondary" id="ltcWelcomeClose" type="button">Inizio da zero</button>
+  </div>
+</div>

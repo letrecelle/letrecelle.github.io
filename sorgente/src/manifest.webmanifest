@@ -1,0 +1,17 @@
+{
+  "name": "Le Tre Celle",
+  "short_name": "Le Tre Celle",
+  "description": "Conteggi di cella, banco e surgelati e ordine del giorno della pescheria",
+  "lang": "it",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f3f8f8",
+  "theme_color": "#0b6e78",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

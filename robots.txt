@@ -1,0 +1,3 @@
+# App privata del negozio: non va nei motori di ricerca
+User-agent: *
+Disallow: /
