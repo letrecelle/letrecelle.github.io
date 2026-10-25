@@ -20,6 +20,10 @@ L'utente è italiano e lavora in pescheria: rispondigli in italiano semplice, se
 - **Tutto ciò che si cancella va prima nel Cestino** (`trash/`, funzione `toTrash`): sezione `pesi` (zone azzerate, casse, prodotti, giorni di DDT/venduto) o `ordinazioni` (prenotazioni, clienti). Dal Cestino si ripristina o si elimina per sempre con doppio tocco. Una nuova cancellazione deve seguire la stessa strada e avere il suo ripristino in `trashRestore`.
 - Le cancellazioni e le modifiche delicate chiedono il **doppio tocco** (funzione `arm`).
 
+## Ricerca e voce
+- Ogni ricerca di prodotti (Cella, Banco, Surgelati, Riepilogo, Ordine, Impostazioni) passa da `filterProducts(lista, testo)`: un numero che è il PLU di qualcuno ("4", "plu 4", anche i PLU in più di `plus`) trova quel prodotto; altrimenti cerca le parole nel nome (accenti e ordine non contano).
+- Il microfono accanto a ogni peso (`data-act="mic"`, `voiceTap`) usa il riconoscimento vocale del telefono in italiano; `parseSpokenKg` trasforma "sei e mezzo", "6 virgola 250", "800 grammi", "tre etti" in kg. Se il telefono non lascia ascoltare l'app, il campo passa alla tastiera intera per usarne il microfono (`voiceKeyboardStart`).
+
 ## Prenotazioni
 - `bookingDays/<data>`: orari del giorno (`open`, `close`, `slotMin`, `cap` = clienti per fascia) e occupazione: `taken.<HHMM>.<idPrenotazione> = istante` (0 = libero), `kg.<idProdotto>.<idPrenotazione> = kg` (entra nell'ordine al fornitore del giorno di consegna).
 - Si scrive sempre una voce alla volta con `update` (merge), così più telefoni prenotano insieme. Se due prendono l'ultimo posto nello stesso momento, vince chi è arrivato prima (`istante`) e l'altro riceve l'avviso per spostarsi.

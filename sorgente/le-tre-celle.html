@@ -160,6 +160,17 @@
   }
   .qty-input:focus{outline:2px solid var(--accent);outline-offset:-1px;}
   .qty-unit{font-size:11px;color:var(--ink-faint);margin-left:1px;}
+  /* say the weight aloud */
+  .mic-btn{
+    width:36px;height:36px;border-radius:50%;border:1px solid var(--accent);background:var(--accent-soft);color:var(--accent);
+    display:flex;align-items:center;justify-content:center;flex-shrink:0;cursor:pointer;padding:0;margin-left:2px;
+  }
+  .mic-btn svg{width:18px;height:18px;}
+  .mic-btn:active{transform:scale(.94);}
+  .mic-btn.on{background:var(--critical);border-color:var(--critical);color:#fff;animation:micPulse 1.1s ease-in-out infinite;}
+  @keyframes micPulse{0%,100%{box-shadow:0 0 0 0 rgba(187,70,54,.5);}50%{box-shadow:0 0 0 8px rgba(187,70,54,0);}}
+  .qty-input.voice-ok{background:var(--accent-soft);border-color:var(--accent);}
+  .qty-input.voice-kb{width:104px;border-color:var(--critical);}
 
   /* zone rows with optional crates */
   .zrow{
@@ -668,7 +679,7 @@
       </div>
       <div class="modal-section-title" id="setProducts">Prodotti</div>
       <p class="danger-text"><b>Fresco</b> compare in Cella e al Banco. <b>Surgelato</b> compare solo nei Surgelati. <b>In tutte e 3</b> è per i surgelati che tieni anche scongelati in cella o al banco: ogni zona ha il suo peso e il totale li somma, senza cambiare i kg dei surgelati.</p>
-      <div class="search-wrap"><input class="search-input" id="prodSearch" placeholder="Cerca prodotto o PLU…" autocomplete="off" style="padding-left:12px"></div>
+      <div class="search-wrap"><input class="search-input" id="prodSearch" placeholder="Cerca nome o PLU…" autocomplete="off" style="padding-left:12px"></div>
       <div id="productsList"></div>
       <button class="btn-primary btn-block" id="addProduct">+ Nuovo prodotto</button>
 
@@ -779,6 +790,7 @@
   var photoOk = false;            // this view can send images
   var photoLimits = null;
   var searchTerms = {cella:"", banco:"", surgelati:"", riepilogo:""};
+  var ordSearch = "";
   var newProd = {name:"", price:""};   // what is typed in the "add product" box, kept across redraws
   var pendingFocusPid = null;           // product just added: scroll to it and put the cursor on its weight
   var seedAttempted = false;
@@ -906,6 +918,7 @@
   }
   function iconUp(){ return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"/></svg>'; }
   function iconDown(){ return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>'; }
+  function iconMic(){ return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0"/><line x1="12" y1="17.5" x2="12" y2="21"/></svg>'; }
   function iconCopy(){ return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/></svg>'; }
   function iconCheck(){ return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>'; }
 
@@ -1032,8 +1045,11 @@
     return '' +
     '<div class="row-input">' +
       '<button class="stepper" data-act="minus" data-pid="'+pid+'" data-zone="'+zk+'" data-idx="'+idx+'" aria-label="Diminuisci">−</button>' +
-      '<input class="qty-input mono" type="text" inputmode="decimal" data-role="qty" data-pid="'+pid+'" data-zone="'+zk+'" data-idx="'+idx+'" value="'+ (val? kgTxt(val) : "0") +'">' +
+      (voiceKbIs(pid, zk, idx)
+        ? '<input class="qty-input mono voice-kb" type="text" inputmode="text" enterkeyhint="done" placeholder="parla…" data-role="qty" data-pid="'+pid+'" data-zone="'+zk+'" data-idx="'+idx+'" value="">'
+        : '<input class="qty-input mono" type="text" inputmode="decimal" data-role="qty" data-pid="'+pid+'" data-zone="'+zk+'" data-idx="'+idx+'" value="'+ (val? kgTxt(val) : "0") +'">') +
       '<button class="stepper" data-act="plus" data-pid="'+pid+'" data-zone="'+zk+'" data-idx="'+idx+'" aria-label="Aumenta">+</button>' +
+      '<button class="mic-btn'+(voiceIs(pid, zk, idx)?' on':'')+'" data-act="mic" data-pid="'+pid+'" data-zone="'+zk+'" data-idx="'+idx+'" aria-label="Detta il peso a voce">'+iconMic()+'</button>' +
     '</div>';
   }
 
@@ -1227,13 +1243,38 @@
     });
   }
 
+  // ---------------- search: by name or by PLU number ----------------
+  // "4" or "plu 4" → the product(s) with PLU 4; words → names containing them (accents don't matter, any order).
+  // A number that is nobody's PLU (e.g. "400") is looked for in the names ("Orata 400/600").
+  function searchNorm(s){ return String(s || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, " ").trim(); }
+  function searchKey(raw){ return searchNorm(raw).replace(/^plu\s*/, ""); }
+  function hasPlu(p, n){ return allPlus(p).some(function(x){ return String(Number(x)) === n; }); }
+  function pluQuery(raw){
+    var k = searchKey(raw);
+    if(!/^\d+$/.test(k)) return null;
+    var n = String(Number(k));
+    return products.some(function(p){ return hasPlu(p, n); }) ? n : null;
+  }
+  function filterProducts(list, raw){
+    var k = searchKey(raw);
+    if(!k) return list;
+    var n = pluQuery(raw);
+    if(n) return list.filter(function(p){ return hasPlu(p, n); });
+    var words = k.split(" ");
+    return list.filter(function(p){ var name = searchNorm(p.name); return words.every(function(w){ return name.indexOf(w) > -1; }); });
+  }
+  function noMatchText(raw){
+    var k = searchKey(raw);
+    return /^\d+$/.test(k) ? 'Nessun prodotto con PLU ' + esc(String(Number(k))) + ' né con «' + esc(k) + '» nel nome.' : 'Nessun prodotto trovato.';
+  }
+
   // ---------------- render: zone view ----------------
   function renderZoneView(zk){
     var zone = ZONES.find(function(z){return z.key===zk;});
     var frozenZone = zk === "surgelati";
-    var term = (searchTerms[zk]||"").toLowerCase();
+    var term = searchKey(searchTerms[zk]);
     var inZone = productsForZone(zk);
-    var list = inZone.filter(function(p){ return !term || p.name.toLowerCase().indexOf(term)>-1; });
+    var list = filterProducts(inZone, searchTerms[zk]);
 
     var rowsHtml;
     if(inZone.length===0){
@@ -1241,13 +1282,13 @@
         ? 'Nessun prodotto surgelato. Aggiungilo qui sotto, oppure segna un prodotto come Surgelato nelle impostazioni.'
         : 'Nessun prodotto fresco. Aggiungilo qui sotto.') + '</div>';
     } else if(list.length===0){
-      rowsHtml = '<div class="empty-note">Nessun prodotto trovato. Puoi aggiungerlo qui sotto.</div>';
+      rowsHtml = '<div class="empty-note">' + noMatchText(searchTerms[zk]) + (/^\d+$/.test(term) ? '' : ' Puoi aggiungerlo qui sotto.') + '</div>';
     } else {
       rowsHtml = '<div class="row-list">' + list.map(function(p){ return zoneRowHtml(p, zk); }).join("") + '</div>';
     }
 
     // Searching in Cella/Banco for a frozen product (or in Surgelati for a fresh one): offer to count it here too.
-    var other = term ? products.filter(function(p){ return !belongsToZone(p, zk) && inZone.indexOf(p) < 0 && p.name.toLowerCase().indexOf(term) > -1; }) : [];
+    var other = term ? filterProducts(products.filter(function(p){ return !belongsToZone(p, zk) && inZone.indexOf(p) < 0; }), searchTerms[zk]) : [];
     if(other.length){
       if(list.length === 0) rowsHtml = '<div class="zone-hint">Non è in questa lista, ma c\'è già:</div>';
       {
@@ -1259,7 +1300,7 @@
     }
 
     // If a search found nothing, offer that name in the add box.
-    var nameVal = newProd.name || (list.length===0 && term && !other.length ? searchTerms[zk] : "");
+    var nameVal = newProd.name || (list.length===0 && term && !other.length && !/^\d+$/.test(term) ? searchTerms[zk] : "");
     var addBox = '' +
       '<div class="add-product">' +
         '<div class="add-title">Aggiungi prodotto ' + (frozenZone ? 'surgelato' : 'fresco') + '</div>' +
@@ -1273,7 +1314,7 @@
 
     document.getElementById("view").innerHTML =
       '<div class="zone-hint">'+zone.hint+' I valori restano finché non azzeri la zona dalle impostazioni. Tieni premuto un prodotto per spostarlo.</div>' +
-      '<div class="search-wrap">'+iconSearch()+'<input class="search-input" id="zoneSearch" placeholder="Cerca prodotto…" value="'+esc(searchTerms[zk])+'"></div>' +
+      '<div class="search-wrap">'+iconSearch()+'<input class="search-input" id="zoneSearch" placeholder="Cerca nome o PLU…" value="'+esc(searchTerms[zk])+'"></div>' +
       rowsHtml + addBox;
 
     focusPendingRow();
@@ -1336,10 +1377,9 @@
     '</div>';
   }
   function renderStockRows(term){
-    term = (term||"").toLowerCase();
-    var list = products.filter(function(p){ return !term || p.name.toLowerCase().indexOf(term)>-1; });
+    var list = filterProducts(products, term);
     if(products.length===0) return '<div class="empty-note">Nessun prodotto in catalogo.</div>';
-    if(list.length===0) return '<div class="empty-note">Nessun prodotto trovato.</div>';
+    if(list.length===0) return '<div class="empty-note">'+noMatchText(term)+'</div>';
     var fresh = list.filter(function(p){ return !isFrozen(p); });
     var frozen = list.filter(isFrozen);
     var html = "";
@@ -1397,7 +1437,7 @@
       '</div>' +
       '<div class="section-title">Giacenza per prodotto</div>' +
       '<div class="zone-hint">Somma automatica di cella, banco e surgelati per ogni prodotto.</div>' +
-      '<div class="search-wrap">'+iconSearch()+'<input class="search-input" id="stockSearch" placeholder="Cerca prodotto…" value="'+esc(searchTerms.riepilogo)+'"></div>' +
+      '<div class="search-wrap">'+iconSearch()+'<input class="search-input" id="stockSearch" placeholder="Cerca nome o PLU…" value="'+esc(searchTerms.riepilogo)+'"></div>' +
       renderStockRows(searchTerms.riepilogo) +
       '<div class="section-title">Lista riordino</div>' +
       reorderHtml +
@@ -1618,12 +1658,16 @@
     var fresh = products.filter(function(p){ return !isFrozen(p); });
     var frozen = products.filter(isFrozen);
     var totKg = 0, totEur = 0, count = 0;
+    // the search only hides rows: totals and the order to send always count every product
+    var shownIds = null;
+    if(searchKey(ordSearch)){ shownIds = {}; filterProducts(products, ordSearch).forEach(function(p){ shownIds[p.id] = true; }); }
     function rowsFor(list){
       return list.map(function(p){
         var s = suggestion(p);
         var ov = orderOverrideOf(p.id);
         var q = ov != null ? ov : s.kg;
         if(q > 0){ totKg += q; totEur += q * (p.price||0); count++; }
+        if(shownIds && !shownIds[p.id]) return "";
         var meta;
         if(s.none){
           meta = 'Hai ~'+kgShort(Math.max(0,s.th.kg))+' kg · <span class="muted">vendite: dati insufficienti</span>';
@@ -1651,9 +1695,11 @@
         '</div>';
       }).join("");
     }
+    var freshRows = rowsFor(fresh), frozenRows = rowsFor(frozen);
     var listHtml = products.length === 0 ? '<div class="empty-note">Nessun prodotto.</div>' :
-      (fresh.length ? '<div class="stock-group">Fresco</div><div class="ord-list">'+rowsFor(fresh)+'</div>' : '') +
-      (frozen.length ? '<div class="stock-group">Surgelati</div><div class="ord-list">'+rowsFor(frozen)+'</div>' : '');
+      (shownIds && !freshRows && !frozenRows) ? '<div class="empty-note">'+noMatchText(ordSearch)+'</div>' :
+      (freshRows ? '<div class="stock-group">Fresco</div><div class="ord-list">'+freshRows+'</div>' : '') +
+      (frozenRows ? '<div class="stock-group">Surgelati</div><div class="ord-list">'+frozenRows+'</div>' : '');
 
     var footer = '' +
       '<div class="ord-total"><span>'+count+' prodotti · <b class="mono">'+kgShort(totKg)+' kg</b></span><span class="mono">≈ '+euro(totEur)+'</span></div>' +
@@ -1663,6 +1709,7 @@
     document.getElementById("view").innerHTML =
       head + dataCard +
       '<div class="zone-hint" style="margin-top:14px">Tocca un prodotto per vedere come è calcolato. Puoi correggere i kg: la correzione vale solo per l\'ordine di oggi.</div>' +
+      '<div class="search-wrap">'+iconSearch()+'<input class="search-input" id="ordSearch" placeholder="Cerca nome o PLU…" value="'+esc(ordSearch)+'" autocomplete="off"></div>' +
       listHtml + footer +
       renderTrend() + renderLoss();
   }
@@ -3704,6 +3751,215 @@
 
   // ---------------- product row update (no full rerender) ----------------
   // Change one crate (idx 0 = the first/only weight) and refresh the row's sums in place, keeping focus.
+  // =====================================================================
+  // VOCE — say the weight instead of typing it (wet hands): tap 🎤 next to the weight and speak
+  // =====================================================================
+  // ---------------- a weight said aloud → kg ----------------
+  // "sei e mezzo" 6,5 · "6 virgola 250" 6,25 · "sei chili e trecento grammi" 6,3 · "800 grammi" 0,8 · "tre etti" 0,3 · "6:50" 6,5
+  var IT_UNITS = {zero:0, un:1, uno:1, una:1, due:2, tre:3, quattro:4, cinque:5, sei:6, sette:7, otto:8, nove:9, dieci:10, undici:11, dodici:12,
+    tredici:13, quattordici:14, quindici:15, sedici:16, diciassette:17, diciotto:18, diciannove:19};
+  var IT_TENS = [["venti", 20], ["trenta", 30], ["quaranta", 40], ["cinquanta", 50], ["sessanta", 60], ["settanta", 70], ["ottanta", 80], ["novanta", 90]];
+  function itNum(w){ // "ventitre" 23, "trentotto" 38, "duecentocinquanta" 250, "millecinquecento" 1500; NaN if it is not a number
+    if(!w) return NaN;
+    if(Object.prototype.hasOwnProperty.call(IT_UNITS, w)) return IT_UNITS[w];
+    var m = /^(.*?)(mille|mila)(.*)$/.exec(w);
+    if(m){
+      var th = m[1] ? itNum(m[1]) : 1, r = m[3] ? itNum(m[3]) : 0;
+      if((m[2] === "mille") !== !m[1]) return NaN;
+      return th >= 1 && th < 10 && r >= 0 && r < 1000 ? th * 1000 + r : NaN;
+    }
+    var c = w.indexOf("cent");
+    if(c > -1){
+      var h = c ? itNum(w.slice(0, c)) : 1, rest = w.slice(c + 4), r2;
+      if(rest === "" || rest === "o") r2 = 0;
+      else if(rest.charAt(0) === "o" && !isNaN(itNum(rest.slice(1)))) r2 = itNum(rest.slice(1));
+      else r2 = itNum(rest);
+      return h >= 1 && h < 10 && r2 >= 0 && r2 < 100 ? h * 100 + r2 : NaN;
+    }
+    for(var i = 0; i < IT_TENS.length; i++){
+      var t = IT_TENS[i][0], v = IT_TENS[i][1], stem = t.slice(0, -1);
+      if(w === t) return v;
+      if(w.indexOf(t) === 0){ var u = itNum(w.slice(t.length)); if(u >= 1 && u <= 9) return v + u; }
+      if(w === stem + "uno") return v + 1;
+      if(w === stem + "otto") return v + 8;
+    }
+    return NaN;
+  }
+  function spokenTokens(raw){
+    var s = " " + String(raw || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "") + " ";
+    s = s.replace(/(\d)\s*:\s*(\d)/g, "$1 e $2").replace(/(\d)([a-z])/g, "$1 $2").replace(/([a-z])(\d)/g, "$1 $2").replace(/\bmezz'/g, "mezzo ");
+    var toks = [];
+    (s.match(/\d+(?:[.,]\d+)?|,|[a-z]+/g) || []).forEach(function(w){
+      if(/^\d/.test(w)){
+        var p = w.split(/[.,]/);
+        toks.push(p[1] ? {t: "n", v: Number(p[0] + "." + p[1]), dec: true} : {t: "n", v: Number(p[0]), d: p[0]});
+      }
+      else if(w === "," || w === "virgola" || w === "punto") toks.push({t: ","});
+      else if(/^(kg|kilo|kili|chilo|chili|chilogramm[oi]|kilogramm[oi])$/.test(w)) toks.push({t: "kg"});
+      else if(/^(g|gr|grammo|grammi)$/.test(w)) toks.push({t: "g"});
+      else if(/^(etto|etti|hg)$/.test(w)) toks.push({t: "hg"});
+      else if(w === "e" || w === "ed") toks.push({t: "e"});
+      else if(w === "mezzo" || w === "mezza") toks.push({t: "half"});
+      else { var n = itNum(w); if(!isNaN(n)) toks.push({t: "n", v: n, d: String(n)}); }
+    });
+    // "6 virgola 2 5 0" / "sei virgola duecentocinquanta" → one number
+    var out = [];
+    for(var i = 0; i < toks.length; i++){
+      var k = toks[i];
+      if(k.t === "n" && !k.dec && toks[i + 1] && toks[i + 1].t === "," && toks[i + 2] && toks[i + 2].t === "n" && !toks[i + 2].dec){
+        var frac = "", j = i + 2;
+        while(toks[j] && toks[j].t === "n" && !toks[j].dec){ frac += toks[j].d; j++; }
+        out.push({t: "n", v: k.v + Number("0." + frac), dec: true});
+        i = j - 1;
+      } else if(k.t !== ",") out.push(k);
+    }
+    return out;
+  }
+  function parseSpokenKg(raw){
+    var t = spokenTokens(raw), i = 0;
+    while(i < t.length && t[i].t !== "n" && t[i].t !== "half") i++;
+    if(i >= t.length) return null;
+    function unitAt(j){ return t[j] && (t[j].t === "kg" || t[j].t === "g" || t[j].t === "hg") ? t[j].t : null; }
+    if(t[i].t === "half") return unitAt(i + 1) === "hg" ? 0.05 : (unitAt(i + 1) === "g" ? null : 0.5); // "mezzo chilo"
+    var A = t[i], unit = unitAt(i + 1), total, asGrams = false;
+    if(unit === "g") total = A.v / 1000;
+    else if(unit === "hg") total = A.v / 10;
+    else if(!unit && !A.dec && A.v >= 100){ total = A.v / 1000; asGrams = true; } // "cinquecento" said alone = 500 g
+    else total = A.v;
+    var j = i + 1 + (unit ? 1 : 0);
+    var andNext = t[j] && t[j].t === "e" ? j + 1 : (unit === "kg" && t[j] && (t[j].t === "n" || t[j].t === "half") ? j : -1);
+    if(andNext > -1 && !asGrams && !A.dec && unit !== "g"){
+      var B = t[andNext], bu = unitAt(andNext + 1);
+      if(B && B.t === "half") total += unit === "hg" ? 0.05 : 0.5;          // "sei e mezzo", "due etti e mezzo"
+      else if(B && B.t === "n" && !B.dec && unit !== "hg"){
+        if(bu === "g") total += B.v / 1000;                                   // "sei chili e trecento grammi"
+        else if(bu === "hg") total += B.v / 10;                               // "un chilo e tre etti"
+        else if(!bu){
+          var len = String(B.d || B.v).length;
+          if(len === 1) total += B.v / 10;                                     // "sei e otto" 6,8
+          else if(len === 2) total += unit === "kg" ? B.v / 1000 : B.v / 100;  // "sei chili e cinquanta" 6,050 · "sei e cinquanta" 6,50
+          else if(len === 3) total += B.v / 1000;                              // "sei e cinquecento" 6,500 · "6 e 050" 6,050
+        }
+      }
+    }
+    total = Math.round(total * 1000) / 1000;
+    return isFinite(total) && total >= 0 && total < 1000 ? total : null;
+  }
+
+  var SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition || null;
+  var voice = null;                 // {rec, pid, zk, idx} while the app is listening
+  var voiceKeyboard = !SpeechRec;   // this phone can't listen inside the app: use the keyboard's microphone instead
+  var voiceKb = null;               // {pid, zk, idx, prev} while the keyboard's microphone is being used on a weight
+  var voiceLocal = false;           // the phone turns the voice into text by itself, without sending it out
+  function voiceIs(pid, zk, idx){ return !!voice && voice.pid === pid && voice.zk === zk && voice.idx === idx; }
+  function voiceKbIs(pid, zk, idx){ return !!voiceKb && voiceKb.pid === pid && voiceKb.zk === zk && voiceKb.idx === idx; }
+  function qtySel(pid, zk, idx){ return '[data-pid="'+cssEscape(pid)+'"][data-zone="'+zk+'"][data-idx="'+idx+'"]'; }
+  function voiceCheckLocal(){
+    try{
+      if(SpeechRec && typeof SpeechRec.available === "function"){
+        Promise.resolve(SpeechRec.available({langs: ["it-IT"], processLocally: true})).then(function(s){ voiceLocal = s === "available"; }).catch(function(){});
+      }
+    }catch(e){}
+  }
+  function voiceMark(){
+    document.querySelectorAll(".mic-btn.on").forEach(function(b){ b.classList.remove("on"); });
+    if(voice){ var b = document.querySelector(".mic-btn" + qtySel(voice.pid, voice.zk, voice.idx)); if(b) b.classList.add("on"); }
+  }
+  function voiceStop(){
+    if(!voice) return;
+    var v = voice; voice = null; v.done = true;
+    clearTimeout(v.timer);
+    try{ v.rec.abort(); }catch(e){}
+    voiceMark();
+  }
+  function voiceTap(pid, zk, idx){
+    if(voice){ var same = voiceIs(pid, zk, idx); voiceStop(); if(same) return; }
+    if(voiceKeyboard){ voiceKeyboardStart(pid, zk, idx); return; }
+    var rec;
+    try{ rec = new SpeechRec(); }catch(e){ voiceKeyboard = true; voiceKeyboardStart(pid, zk, idx); return; }
+    rec.lang = "it-IT"; rec.continuous = false; rec.interimResults = false; rec.maxAlternatives = 5;
+    try{ if(voiceLocal) rec.processLocally = true; }catch(e){}
+    var v = voice = {rec: rec, pid: pid, zk: zk, idx: idx, done: false};
+    rec.onresult = function(ev){
+      if(v.done) return;
+      v.done = true;
+      var alts = [], r = ev.results && ev.results[ev.results.length - 1];
+      if(r) for(var i = 0; i < r.length; i++) alts.push(String(r[i].transcript || ""));
+      voiceGot(v, alts);
+    };
+    rec.onerror = function(ev){ if(!v.done){ v.done = true; voiceError(v, ev && ev.error); } };
+    rec.onend = function(){
+      clearTimeout(v.timer);
+      if(voice === v){ voice = null; voiceMark(); }
+      if(!v.done){ v.done = true; toast("Non ho sentito niente: tocca il microfono e riprova"); }
+    };
+    try{ rec.start(); }
+    catch(e){ voice = null; voiceKeyboard = true; voiceMark(); voiceKeyboardStart(pid, zk, idx); return; }
+    v.timer = setTimeout(function(){ if(voice === v){ try{ rec.stop(); }catch(e){} } }, 8000);
+    voiceMark();
+    toast("Ascolto… di' il peso, per esempio «sei e mezzo»");
+  }
+  function voicePut(pid, zk, idx, val, heard){
+    var parts = getParts(zk, pid);
+    if(idx >= parts.length){ toast("Quella cassa non c'è più"); return; }
+    var input = document.querySelector(".qty-input" + qtySel(pid, zk, idx));
+    updateQty(pid, zk, idx, val, input);
+    if(input){ input.classList.add("voice-ok"); setTimeout(function(){ input.classList.remove("voice-ok"); }, 1400); }
+    try{ if(navigator.vibrate) navigator.vibrate(35); }catch(e){}
+    var p = products.find(function(x){ return x.id === pid; });
+    toast("«" + String(heard).trim() + "» → " + (p ? p.name + " " : "") + kgTxt(val) + " kg");
+  }
+  function voiceGot(v, alts){
+    var val = null, heard = alts[0] || "";
+    for(var i = 0; i < alts.length && val == null; i++){ val = parseSpokenKg(alts[i]); if(val != null) heard = alts[i]; }
+    if(val == null){ toast(heard.trim() ? "Non ho capito «" + heard.trim() + "»: riprova o scrivilo" : "Non ho sentito niente: tocca il microfono e riprova"); return; }
+    voicePut(v.pid, v.zk, v.idx, val, heard);
+  }
+  function voiceError(v, err){
+    if(voice === v){ voice = null; voiceMark(); }
+    clearTimeout(v.timer);
+    if(err === "aborted") return;
+    if(err === "no-speech") toast("Non ho sentito niente: tocca il microfono e riprova");
+    else if(err === "not-allowed" || err === "service-not-allowed"){
+      voiceKeyboard = true;
+      toast("Il telefono non lascia ascoltare l'app. Tocca di nuovo il microfono: userai quello della tastiera.");
+    }
+    else if(err === "audio-capture") toast("Il microfono del telefono non risponde");
+    else if(err === "network") toast("Per capire la voce serve internet: riprova, oppure scrivi il peso");
+    else if(err === "language-not-supported"){ voiceLocal = false; toast("Riprova"); }
+    else toast("Non sono riuscito ad ascoltare: riprova");
+  }
+  // Keyboard microphone: the number pad has no microphone, so the field switches to the full keyboard for a moment
+  function voiceKeyboardStart(pid, zk, idx){
+    var input = document.querySelector(".qty-input" + qtySel(pid, zk, idx));
+    if(!input) return;
+    if(document.activeElement === input) input.blur();
+    voiceKb = {pid: pid, zk: zk, idx: idx, prev: input.value};
+    input.setAttribute("inputmode", "text");
+    input.setAttribute("enterkeyhint", "done");
+    input.placeholder = "parla…";
+    input.value = "";
+    input.classList.add("voice-kb");
+    input.focus();
+    toast("Tocca il microfono della tastiera, di' il peso e poi Fine");
+  }
+  function voiceKeyboardEnd(input){
+    var k = voiceKb;
+    voiceKb = null;
+    input.setAttribute("inputmode", "decimal");
+    input.removeAttribute("enterkeyhint");
+    input.removeAttribute("placeholder");
+    input.classList.remove("voice-kb");
+    var txt = input.value.trim();
+    var val = txt ? parseSpokenKg(txt) : null;
+    if(val == null){
+      input.value = k.prev;
+      if(txt) toast("Non ho capito «" + txt + "»: riprova o scrivilo");
+      return;
+    }
+    voicePut(k.pid, k.zk, k.idx, val, txt);
+  }
+
   function updateQty(pid, zk, idx, newVal, inputEl){
     var parts = getParts(zk, pid);
     if(idx < 0 || idx >= parts.length) idx = 0;
@@ -4218,11 +4474,10 @@
   // ---------------- products modal ----------------
   function renderProductsModal(){
     var sorted = products.slice().sort(function(a,b){ return (a.order||0)-(b.order||0); });
-    var ps = document.getElementById("prodSearch"), term = normTxt(ps ? ps.value : "");
-    if(term && sorted.length){
-      var num = /^\d+$/.test(term) ? term : null;
-      sorted = sorted.filter(function(p){ return num ? allPlus(p).indexOf(num) > -1 : normTxt(p.name).indexOf(term) > -1; });
-      if(!sorted.length){ document.getElementById("productsList").innerHTML = '<div class="empty-note">Nessun prodotto trovato.</div>'; return; }
+    var ps = document.getElementById("prodSearch"), term = ps ? ps.value : "";
+    if(searchKey(term) && sorted.length){
+      sorted = filterProducts(sorted, term);
+      if(!sorted.length){ document.getElementById("productsList").innerHTML = '<div class="empty-note">'+noMatchText(term)+'</div>'; return; }
     }
     if(sorted.length===0){
       document.getElementById("productsList").innerHTML = '<div class="empty-note">Nessun prodotto ancora. Aggiungine uno qui sotto.</div>';
@@ -4573,6 +4828,8 @@
       if(nameBtn){ renameTap(nameBtn.dataset.pid); return; }
       if(e.target.closest('[data-act="rename-save"]')){ renameSave(); return; }
       if(e.target.closest('[data-act="rename-cancel"]')){ renameCancel(); return; }
+      var micBtn = e.target.closest('[data-act="mic"]');
+      if(micBtn){ voiceTap(micBtn.dataset.pid, micBtn.dataset.zone, parseInt(micBtn.dataset.idx||"0",10)); return; }
       var dupBtn = e.target.closest('[data-act="dup-part"]');
       if(dupBtn){ duplicatePart(dupBtn.dataset.pid, dupBtn.dataset.zone); return; }
       var addBtn = e.target.closest('[data-act="add-part"]');
@@ -4625,6 +4882,8 @@
         return;
       }
       if(e.key !== "Enter") return;
+      if(e.target.matches && e.target.matches('[data-role="qty"].voice-kb')){ e.preventDefault(); e.target.blur(); return; }
+      if(e.target.id === "ordSearch" || e.target.id === "zoneSearch" || e.target.id === "stockSearch"){ e.preventDefault(); e.target.blur(); return; }
       if(e.target.id === "newProdName" || e.target.id === "newProdPrice"){
         e.preventDefault();
         var b = document.getElementById("newProdAdd");
@@ -4635,6 +4894,7 @@
     document.getElementById("view").addEventListener("input", function(e){
       var t = e.target;
       if(t.matches('[data-role="qty"]')){
+        if(voiceKb && voiceKbIs(t.dataset.pid, t.dataset.zone, parseInt(t.dataset.idx||"0",10))) return; // words being dictated: read them when done
         var val = parseNum(t.value);
         updateQty(t.dataset.pid, t.dataset.zone, parseInt(t.dataset.idx||"0",10), val, null);
       } else if(t.id==="zoneSearch"){
@@ -4649,6 +4909,9 @@
         renderRiepilogo();
         var again2 = document.getElementById("stockSearch");
         if(again2){ again2.focus(); try{ again2.setSelectionRange(caretPos2, caretPos2); }catch(err){} }
+      } else if(t.id==="ordSearch"){
+        ordSearch = t.value;
+        renderView();
       } else if(t.matches('[data-role="order"]')){
         setOrderOverride(t.dataset.pid, parseNum(t.value));
         refreshOrderTotals();
@@ -4667,6 +4930,10 @@
     });
 
     document.getElementById("view").addEventListener("blur", function(e){
+      if(e.target.matches && e.target.matches('[data-role="qty"]') && e.target.isConnected && voiceKb && voiceKbIs(e.target.dataset.pid, e.target.dataset.zone, parseInt(e.target.dataset.idx||"0",10))){
+        voiceKeyboardEnd(e.target);
+        return;
+      }
       if(e.target.matches && e.target.matches('[data-role="qty"]')){
         var v = parseNum(e.target.value);
         e.target.value = v ? kgTxt(v) : "0";
@@ -4730,6 +4997,7 @@
     if(known.indexOf(activeTab) < 0) activeTab = "ordine";
     renderView();
     attachEvents();
+    voiceCheckLocal();
     initDb();
   }
 

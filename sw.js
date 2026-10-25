@@ -1,7 +1,7 @@
 // Le Tre Celle — lets the app open without internet and keeps it up to date.
 // The page itself: newest from the internet when it answers quickly, otherwise the saved copy.
 // Libraries, icons and the text reader: saved the first time, then read from the phone.
-const VERSION = "20260929231205-36feaf25";
+const VERSION = "20261025223614-2324c437";
 const SHELL = "ltc-shell-" + VERSION;
 const LIBS = "ltc-libs-v1";
 const SHELL_FILES = ["./", "index.html", "manifest.webmanifest", "icons/icon-192.png", "icons/icon-512.png", "icons/apple-touch-icon.png"];
